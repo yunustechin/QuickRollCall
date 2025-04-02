@@ -9,6 +9,7 @@ YQRlama is a system designed to securely take attendance using QR codes. In this
 - **Data Storage**: Student information is securely stored in the Redis database.
 
 ## Technologies
+This part will be detailed, in the draft stage
 
 ### Frontend
 - **HTML**

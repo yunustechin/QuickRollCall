@@ -12,21 +12,21 @@ YQRlama is a system designed to securely take attendance using QR codes. In this
 This part will be detailed, in the draft stage
 
 ### Frontend
-- **HTML**
-- **CSS**
-- **Bootstrap 5**
-- **JavaScript**
+`HTML`
+`CSS`
+`Bootstrap 5`
+`JavaScript`
 
 ### Backend
-- **Node.js**
-- **Python**
-  - **Flask**
-  - **Django**
-  - **FastAPI**
-- **PythonQR** (For generating and reading QR codes)
+`Node.js`
+`Python`
+`Flask`
+`Django`
+`FastAPI`
+`PythonQR` 
 
 ### Database
-- **Redis**
+`Redis`
 
 ## AWS
 Currently, the project is running on **localhost** and is not open for public use. It can be hosted on **AWS** for production purposes, but as of now, it is only available for local testing. The project is ready to be deployed on AWS but is not accessible to users outside the testing phase.

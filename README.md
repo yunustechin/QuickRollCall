@@ -26,7 +26,7 @@ This part will be detailed, in the draft stage
 `PythonQR` 
 
 ### Database
-`Redis`
+`PostgreSQL`
 
 ## AWS
 Currently, the project is running on **localhost** and is not open for public use. It can be hosted on **AWS** for production purposes, but as of now, it is only available for local testing. The project is ready to be deployed on AWS but is not accessible to users outside the testing phase.

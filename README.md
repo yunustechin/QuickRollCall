@@ -31,16 +31,13 @@ YQRlama aims to provide a secure and efficient way for teachers to manage studen
 ## Technologies
 
 ### Frontend
-- `Bootstrap 5`
-- `JavaScript`
+
 
 ### Backend
-- `Node.js`
-- `Python`
-- `Django`
+
 
 ### Database
-- `Redis`
+
 
 ## Deployment and Container
 

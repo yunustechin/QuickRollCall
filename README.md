@@ -1,6 +1,6 @@
 # YQRlama
 
-YQRlama is a system designed to securely take attendance using QR codes. Teachers generate a unique QR code by entering course details, and students scan the QR code to mark their attendance. The QR codes change every 15 seconds and are valid only for a specific time period. Student information is securely stored in the Redis database.
+YQRlama is a system designed to securely take attendance using QR codes. Teachers generate a unique QR code by entering course details, and students scan the QR code to mark their attendance. The QR codes change every 15 seconds and are valid only for a specific time period. Student information is securely stored in the ? database.
 
 ## Purpose
 

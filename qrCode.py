@@ -3,7 +3,6 @@ import hashlib
 import time
 
 class UniqueIdGenerator:
-    
     def __init__(self):
         self.unique_id = self.generate_unique_id()
 
@@ -16,7 +15,6 @@ class UniqueIdGenerator:
         return self.unique_id
     
 class QRCodeGenerator:
-
     def __init__(self, data):
         self.data = data
         self.qr_code = None

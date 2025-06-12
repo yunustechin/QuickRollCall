@@ -3,26 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student Dashboard</title>
+    <title>QR Code Scanner</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding-top: 40px; }
+        #reader { width: 300px; margin: 20px auto; border: 2px solid #ddd;}
+        #status { margin-top: 20px; font-size: 1.1em; }
+        button { padding: 12px 20px; font-size: 1.2em; cursor: pointer; }
+    </style>
 </head>
 <body>
 
-    <h1>Student Dashboard</h1>
+    <h1>QR Scanner</h1>
+    
+    <button id="scanButton">Scan QR Code</button>
 
-    <p>Welcome for Quick Roll Call</p>
+    <div id="reader"></div>
 
-    <hr>
+    <div id="status">Please press the button to scan the QR code.</div>
 
-    <h2>Actions</h2>
-    <button type="button">Scan Attendance QR</button>
-
-    <br><br>
-
-    <hr>
-
-    <footer>
-        <p>&copy; Quick Roll Call</p>
-    </footer>
+    <script src="/ui/student/student.js"></script>
 
 </body>
 </html>

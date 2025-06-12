@@ -1,31 +1,37 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import api.qrRouters as qrRouters
 import uvicorn
+from . import qrRouters
 
 app = FastAPI()
 
-# Enable CORS for all origins, methods, and headers (development use)
+# Allow all CORS origins during development; restrict in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"], # Replace with frontend domain in production
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Enable CORS for all origins, methods, and headers (development use)
+# Register QR Code related routes under the /qr prefix
 app.include_router(qrRouters.router, prefix="/qr", tags=["QR Code"])
 
-# Health check or root endpoint
+@app.on_event("startup")
+async def startup_event():
+    app.state.is_running = True
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    app.state.is_running = False
+
+# Health check endpoint for monitoring API status
 @app.get("/")
 def root():
-    if app.state.is_running:
-        return {"message": "QR Code Generator API is running!"}
-    else:
+    if not getattr(app.state, "is_running", False):
         return {"message": "QR Code Generator API is not running!"}
-    
-# Check if the application is running
+    return {"message": "QR Code Generator API is running!"}
+
+
 if __name__ == "__main__":
-    getattr(app.state,"is_running", False) 
-    uvicorn.run("main:app", host="127.0.0.1", port=5000, reload=True)
+    uvicorn.run("api.main:app", host="127.0.0.1", port=5000, reload=True)

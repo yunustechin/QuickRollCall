@@ -1,35 +1,60 @@
 document.addEventListener('DOMContentLoaded', () => {
 
-    const generateButton = document.getElementById('generateButton')
-    const qrImageElement = document.getElementById('qrImage');
-    const apiUrl = 'http://127.0.0.1:5000/qr/generate-qr-code';
+    const API_URL = 'http://127.0.0.1:5000/qr/generate-qr-code';
+    const ALT_TEXT = {
+        LOADING: 'Generating QR Code...',
+        SUCCESS: 'QR Code Image',
+        ERROR: 'Failed to generate QR Code.'
+    };
 
-    generateButton.addEventListener('click', async () => {
+    const generateButton = document.getElementById('generateButton');
+    const qrImageElement = document.getElementById('qrImage');
+
+    /**
+     * Fetches a QR code image from the API.
+     * @returns {Promise<Blob>} A promise that resolves with the image blob.
+     * @throws {Error} If the network response is not successful.
+     */
+    const fetchQrCode = async () => {
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Accept': 'image/png'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        return response.blob();
+    };
+
+    /**
+     * Handles the click event to generate and display a new QR code.
+     * This function orchestrates the UI updates and the API call.
+     */
+    const handleGenerateClick = async () => {
+        // 1. Set the UI to a loading state
         qrImageElement.src = '';
-        qrImageElement.alt = 'Generating QR Code...';
+        qrImageElement.alt = ALT_TEXT.LOADING;
 
         try {
-            // API POST request to generate QR code
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                    'Accept': 'image/png'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
-
-            // Convert the returned blob to an image URL and append it to the DOM
-            const imageBlob = await response.blob();
+            // 2. Fetch the QR code image data
+            const imageBlob = await fetchQrCode();
             const imageUrl = URL.createObjectURL(imageBlob);
+
+            // 3. Display the generated image on success
             qrImageElement.src = imageUrl;
-            qrImageElement.alt = 'QR Code';
+            qrImageElement.alt = ALT_TEXT.SUCCESS;
 
         } catch (error) {
-            console.error('There was a problem with the fetch operation:', error);
-            qrImageElement.alt = 'Error generating QR Code';
+            // 4. Handle any errors during the process
+            console.error('QR Code generation failed:', error);
+            qrImageElement.alt = ALT_TEXT.ERROR;
         }
-    });
+    };
+
+    generateButton.addEventListener('click', handleGenerateClick);
+
 });

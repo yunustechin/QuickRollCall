@@ -1,13 +1,14 @@
 from core.attendance.qrCode import QRCodeGenerator,UniqueIdGenerator
 import io
 import asyncio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
+from typing import IO
 
 router = APIRouter()
 
-def build_qr_stream():
+def build_qr_stream() -> io.BytesIO:
     """
     Builds a QR code image stream using a generated unique ID.
 
@@ -30,7 +31,7 @@ def build_qr_stream():
     return image_stream
 
 @router.get("/attend",tags=["Student Dashboard"])
-async def student_dashboard():
+async def student_dashboard(request: Request):
     """
     Endpoint to retrieve the student dashboard.
 
@@ -43,7 +44,7 @@ async def student_dashboard():
     """
     try:
         templates = Jinja2Templates(directory="ui/student")
-        return templates.TemplateResponse("student.html", {"request": {}})
+        return templates.TemplateResponse("student.html", {"request": request})
     
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Template not found.")
@@ -52,7 +53,7 @@ async def student_dashboard():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/generate-qr-code", tags=["QR Code"])
-async def generate_qr_code():
+async def generate_qr_code() -> StreamingResponse:
     """"
     Endpoint to generate a QR code with a unique ID.
 

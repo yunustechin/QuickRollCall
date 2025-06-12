@@ -7,11 +7,15 @@ class UniqueIdGenerator:
         self.unique_id = self.generate_unique_id()
 
     def generate_unique_id(self) -> str:
-        """Generate a unique ID based on the current time and a random number."""
+        """
+        Generate a unique SHA-256 hash based on the current time.
+
+        Returns:
+            str: A hexadecimal string representing the unique ID.
+        """
         return hashlib.sha256(f"{time.time()}".encode()).hexdigest()
 
     def get_unique_id(self) -> str:
-        """Return the unique ID."""
         return self.unique_id
     
 class QRCodeGenerator:
@@ -20,11 +24,23 @@ class QRCodeGenerator:
         self.qr_code = None
 
     def generate_qr_code(self) -> None:
-        """Generate a QR code from the provided data."""
+        """
+        Generate a QR code from the provided data.
+
+        This method stores the QR code internally; it must be called before saving.
+        """
         self.qr_code = qrcode.make(self.data)
 
     def save_qr_code(self, filename: str) -> None:
-        """Save the generated QR code to a file."""
+        """
+        Save the generated QR code to a PNG file.
+
+        Args:
+            filename (str): The path to save the QR code image.
+
+        Raises:
+            ValueError: If the QR code has not been generated yet.
+        """
         if self.qr_code:
             self.qr_code.save(filename)
         else:

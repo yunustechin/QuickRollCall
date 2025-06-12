@@ -1,9 +1,13 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from . import qrRouters
 
 app = FastAPI()
+
+# Mount the main directory for all frontend static assets
+app.mount("/ui", StaticFiles(directory="ui"), name="ui")
 
 # Allow all CORS origins during development; restrict in production
 app.add_middleware(

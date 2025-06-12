@@ -2,9 +2,16 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from contextlib import asynccontextmanager
 from . import qrRouters
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.is_running = True
+    yield 
+    app.state.is_running = False
+
+app = FastAPI(lifespan=lifespan)
 
 # Mount the main directory for all frontend static assets
 app.mount("/ui", StaticFiles(directory="ui"), name="ui")
@@ -20,14 +27,6 @@ app.add_middleware(
 
 # Register QR Code related routes under the /qr prefix
 app.include_router(qrRouters.router, prefix="/qr", tags=["QR Code"])
-
-@app.on_event("startup")
-async def startup_event():
-    app.state.is_running = True
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    app.state.is_running = False
 
 # Health check endpoint for monitoring API status
 @app.get("/")

@@ -34,8 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
             await html5QrCode.stop();
             showIdleState();
             statusDiv.textContent = DYNAMIC_STATUS.SUCCESS(decodedText);
-
-            // TODO: Route veya API logic buraya yazılacak
+            window.location.href = `/qr/attend/${decodedText}`;
 
         } catch (err) {
             console.error(STATIC_STATUS.ERROR_STOP, err);

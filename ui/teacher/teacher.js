@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+    
     const API_URL = 'http://127.0.0.1:5000/qr/generate-qr-code';
     const ALT_TEXT = {
         LOADING: 'Generating QR Code...',

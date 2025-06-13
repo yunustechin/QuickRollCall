@@ -43,6 +43,7 @@ class QRCodeGenerator:
         """
         if not self.qr_code:
             raise ValueError("QR code not generated yet.")
+        
         self.qr_code.save(filename)
             
         

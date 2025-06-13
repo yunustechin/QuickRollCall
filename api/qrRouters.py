@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
-from generator.qrCode import QRCodeGenerator, UniqueIdGenerator
 from db.redisClient import RedisClient
+from generator.qrCode import QRCodeGenerator, UniqueIdGenerator
 import io
 import asyncio
 

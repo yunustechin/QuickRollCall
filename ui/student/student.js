@@ -1,4 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
+
     const STATIC_STATUS = {
         IDLE: 'Click the button to start scanning.',
         SCANNING: 'Initializing scanner... Please point your camera at a QR code.',

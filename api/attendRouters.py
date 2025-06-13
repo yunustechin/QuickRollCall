@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
+from fastapi.templating import Jinja2Templates
 from db.redisClient import RedisClient
 from pydantic import BaseModel
 import logging

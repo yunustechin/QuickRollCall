@@ -41,8 +41,8 @@ class QRCodeGenerator:
         Raises:
             ValueError: If the QR code has not been generated yet.
         """
-        if self.qr_code:
-            self.qr_code.save(filename)
-        else:
+        if not self.qr_code:
             raise ValueError("QR code not generated yet.")
+        self.qr_code.save(filename)
+            
         

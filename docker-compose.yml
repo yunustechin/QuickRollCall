@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  redis:
+    image: 'redis:8.0.2-alpine'
+    container_name: redis-db
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

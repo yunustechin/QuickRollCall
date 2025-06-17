@@ -1,71 +1,125 @@
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Request, Query, Depends, status
+from fastapi.responses import StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
-from db.redisClient import RedisClient
-from generator.qrCode import QRCodeGenerator, UniqueIdGenerator
+from enum import Enum
 import io
 import asyncio
+import logging
+from typing import Optional
+from datetime import datetime
+from .dependencies import get_redis_client
+from generator.qrCode import QRCodeGenerator, UniqueIdGenerator
+from generator.exportFile import ExportFile
+from .config import app_settings
 
 router = APIRouter()
-redis_client = RedisClient()
+templates = Jinja2Templates(directory="ui")
 
-# NOTE: Replace with your actual domain and port in a production environment
-BASE_URL = "http://127.0.0.1:5000" 
+class ExportFormat(str, Enum):
+    TXT = "txt"
+    CSV = "csv"
+
+
+def generate_qr_image_stream(data: str) -> Optional[io.BytesIO]:
+    """Generate a QR code PNG stream from given data."""
+    qr_generator = QRCodeGenerator(data=data)
+    qr_generator.generate_qr_code()
+    
+    if qr_generator.qr_code is None:
+        return None
+    
+    stream = io.BytesIO()
+    qr_generator.qr_code.save(stream, format="PNG")
+    stream.seek(0)
+    return stream
+
+
+async def build_qr_stream(redis: get_redis_client) -> tuple[str, io.BytesIO]:
+    """Create a new session, generate its QR code as PNG stream."""
+    session_id = UniqueIdGenerator().get_unique_id()
+
+    if not await redis.create_attendance_session(session_id=session_id):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not create session in Redis."
+        )
+
+    url = f"{app_settings.BASE_URL}/attend/{session_id}"
+    stream = await asyncio.to_thread(generate_qr_image_stream, url)
+
+    if stream is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate QR code image."
+        )
+
+    return session_id, stream
+
 
 @router.get("/", tags=["QR Code"])
 async def qr_base_page(request: Request):
-    """
-    Serves the main landing page (main.html) which provides entry points
-    for both teachers and students.
-    """
-    templates = Jinja2Templates(directory="ui") 
+    """Render landing page."""
     return templates.TemplateResponse("main.html", {"request": request})
+
 
 @router.get("/teacher", tags=["QR Code"])
 async def teacher_dashboard(request: Request):
-    """
-    This endpoint returns the HTML page that provides the user interface
-    for generating new QR codes for attendance sessions.
-    """
-    templates = Jinja2Templates(directory="ui/teacher") 
-    return templates.TemplateResponse("teacher.html", {"request": request})
+    """Render teacher dashboard for QR code generation."""
+    return templates.TemplateResponse("teacher/teacher.html", {"request": request})
 
-def build_qr_stream() -> io.BytesIO:
-    """
-    Generates a unique session ID, stores it in Redis, and builds a QR code
-    containing the direct URL to the attendance form.
-    """
-    id_generator = UniqueIdGenerator()
-    session_id = id_generator.get_unique_id()
-
-    if not redis_client.create_attendance_session(session_id=session_id):
-        raise ValueError("Failed to create attendance session in Redis.")
-    
-    attendance_url = f"{BASE_URL}/qr/attend/{session_id}"
-        
-    qr_generator = QRCodeGenerator(data=attendance_url)
-    qr_generator.generate_qr_code()
-
-    qr_image = qr_generator.qr_code
-    if qr_image is None:
-        raise ValueError("QR code image could not be generated.")
-
-    image_stream = io.BytesIO()
-    qr_image.save(image_stream, format='PNG')
-    image_stream.seek(0)
-    return image_stream
 
 @router.post("/generate-qr-code", tags=["QR Code"])
-async def generate_qr_code() -> StreamingResponse:
-    """"
-    Endpoint to generate a QR code containing a unique URL for an attendance session.
-    This creates the session in the backend.
-    """
-    try: 
-        image_stream = await asyncio.to_thread(build_qr_stream)
-        return StreamingResponse(image_stream, media_type="image/png")
+async def generate_qr_code(redis: get_redis_client = Depends(get_redis_client)):
+    """Generate QR code and return it with session ID in header."""
+    try:
+        session_id, stream = await build_qr_stream(redis)
+        response = StreamingResponse(stream, media_type="image/png")
+        response.headers["X-Session-ID"] = session_id
+        response.headers["Access-Control-Expose-Headers"] = "X-Session-ID"
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Unexpected error during QR generation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred while generating the QR code."
+        )
     
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
 
+@router.post("/export/{session_id}", tags=["QR Code"])
+async def export_session_data(
+    session_id: str,
+    format: ExportFormat = Query(...),
+    redis: get_redis_client = Depends(get_redis_client)
+):
+    """Export session data and close the session."""
+    attendance_data = await redis.export_attendance(session_id)
+    if attendance_data is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not fetch attendance data."
+        )
+
+    if not await redis.close_attendance_session(session_id):
+        logging.warning(f"Session {session_id} could not be closed after export.")
+
+    exporter = ExportFile(students_data=attendance_data)
+
+    export_map = {
+        ExportFormat.TXT: (exporter.generate_txt, "text/plain"),
+        ExportFormat.CSV: (exporter.generate_csv, "text/csv"),
+    }
+
+    if format not in export_map:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid export format specified.")
     
+    generate_method, media_type = export_map[format]
+    content = generate_method()
+    filename = f"rollcall_{datetime.now():%Y-%m-%d}.{format.value}"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )

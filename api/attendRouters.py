@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
-from db.redisClient import RedisClient
-from pydantic import BaseModel
 import logging
+from pydantic import BaseModel
+from db import RedisClient
+from .config import rate_limit_settings
+from .dependencies import get_redis_client
+
 
 class StudentData(BaseModel):
     name: str
@@ -12,83 +15,108 @@ class StudentData(BaseModel):
     faculty: str
     section: str
 
+
 router = APIRouter()
-redis_client = RedisClient()
 templates = Jinja2Templates(directory="ui/student")
 
-async def rate_limit_dependency(request: Request):
-    """
-    Prevents abuse by limiting requests from a single IP address.
-    Allows 2 requests per 60 seconds.
 
-    NOTE: This check is bypassed for local development requests (from 127.0.0.1).
-    """
-    if request.client.host == "127.0.0.1":
-        return
-    
-    if not redis_client.client:
-        logging.warning("Redis client not available for rate limiting.")
-        return
+async def validate_session_id(
+    session_id: str,
+    redis: RedisClient = Depends(get_redis_client)
+) -> str:
+    """Ensure session exists and is still open."""
+    if not await redis.is_session_valid(session_id):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="This session is closed or expired."
+        )
+    return session_id
 
-    client_id = request.client.host
-    rate_limit_key = f"rate_limit:{client_id}"
-    
-    REQUESTS_LIMIT = 2
-    TIME_WINDOW = 60 # seconds
+
+async def enforce_rate_limit(
+    request: Request,
+    redis: RedisClient = Depends(get_redis_client)
+):
+    """
+    Apply basic rate limit per client IP.
+    Allow max 2 requests per 60 seconds.
+
+    NOTE: Bypassed for local dev (127.0.0.1).
+    """
+    client_ip = request.client.host
+    if client_ip == "127.0.0.1":
+        return
 
     try:
-        pipe = redis_client.client.pipeline()
-        pipe.incr(rate_limit_key)
-        pipe.expire(rate_limit_key, TIME_WINDOW, nx=True)
-        
-        results = pipe.execute()
-        requests_count = results[0]
-
-        if requests_count > REQUESTS_LIMIT:
+        is_limited = await redis.check_rate_limit(
+            client_id=client_ip,
+            limit=rate_limit_settings.REQUESTS_LIMIT,
+            window=rate_limit_settings.TIME_WINDOW
+        )
+        if is_limited:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again in a minute.",
-                headers={"Retry-After": str(TIME_WINDOW)},
+                detail="Too many requests. Try again later.",
+                headers={"Retry-After": str(rate_limit_settings.TIME_WINDOW)}
             )
     except Exception as e:
-        logging.error(f"Could not perform rate limiting for {client_id}: {e}")
-        pass
+        logging.error(f"Rate limit check failed for {client_ip}: {e}")
+
 
 @router.get("/", tags=["Attendance"])
 async def student_dashboard(request: Request):
-    """Endpoint to retrieve the student QR scanner page."""
-    try:
-        return templates.TemplateResponse("student.html", {"request": request})
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Template not found.")
+    """Render QR scanner page for students."""
+    return templates.TemplateResponse("student.html", {"request": request})
 
-@router.get("/{session_id}", dependencies=[Depends(rate_limit_dependency)], tags=["Attendance"])
-async def student_form(request: Request, session_id: str):
+
+@router.get(
+    "/{session_id}",
+    dependencies=[Depends(enforce_rate_limit)],
+    tags=["Attendance"]
+)
+async def show_attendance_form(
+    request: Request,
+    session_id: str = Depends(validate_session_id)
+):
+    """Show form if session is valid."""
+    return templates.TemplateResponse(
+        "form.html",
+        {"request": request, "session_id": session_id}
+    )
+
+
+@router.post(
+    "/{session_id}",
+    dependencies=[Depends(enforce_rate_limit)],
+    tags=["Attendance"]
+)
+async def submit_attendance(
+    student: StudentData,
+    session_id: str = Depends(validate_session_id),
+    redis: RedisClient = Depends(get_redis_client)
+):
     """
-    Validates the session_id from the QR code URL.
-    If valid and session is open, displays the attendance form.
+    Submit attendance data.
+    Rejects duplicates.
     """
-    if not redis_client.is_session_valid(session_id):
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail="This attendance session is closed or has expired.")
+    if await redis.has_student_submitted(session_id, student.school_no):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Attendance already submitted for this session."
+        )
 
-    return templates.TemplateResponse("form.html", {"request": request, "session_id": session_id})
-
-@router.post("/{session_id}", dependencies=[Depends(rate_limit_dependency)], tags=["Attendance"])
-async def submit_attendance(session_id: str, student_data: StudentData):
-    """
-    Handles student attendance form submission.
-    Validates the session and prevents duplicate submissions.
-    """
-    if not redis_client.is_session_valid(session_id):
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Attendance session is closed or has expired.")
-
-    if redis_client.has_student_submitted(session_id, student_data.school_no):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You have already submitted your attendance for this session.")
-
-    if not redis_client.add_student_record(session_id, student_data.school_no, student_data.dict()):
-        raise HTTPException(status_code=500, detail="Failed to save attendance record.")
+    success = await redis.add_student_record(
+        session_id,
+        student.school_no,
+        student.model_dump()
+    )
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not save attendance record."
+        )
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={"message": "Attendance submitted successfully!"}
-    )
+        content={"message": "Attendance recorded successfully!"}
+    ) 

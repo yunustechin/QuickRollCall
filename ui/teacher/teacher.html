@@ -5,17 +5,28 @@
     <title>Teacher Dashboard</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 20px; }
-        #qrContainer { min-height: 250px; min-width: 250px; border: 2px dashed #ccc; margin: 20px auto; display: flex; align-items: center; justify-content: center; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        #qrContainer { width: 250px; height: 250px; border: 2px dashed #ccc; margin: 20px auto; display: flex; align-items: center; justify-content: center; }
+        #qrImage { max-width: 100%; max-height: 100%; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 5px; }
+        select { padding: 10px; font-size: 16px; vertical-align: middle; }
+        #exportControls { margin-top: 15px; display: none; /* Initially hidden */ }
     </style>
 </head>
 <body>
     <h1>Teacher Dashboard</h1>
     <div id="qrContainer">
-        QR Code will appear here
+        <img id="qrImage" src="" alt="QR Code will appear here">
     </div>
     <button id="generateButton">Generate QR Code</button>
 
-    <script src = "/ui/teacher/teacher.js"></script>
+    <div id="exportControls">
+        <select id="formatSelector">
+            <option value="csv">CSV</option>
+            <option value="txt">TXT</option>
+        </select>
+        <button id="responseButton">Export</button>
+    </div>
+
+    <script src="/ui/teacher/teacher.js"></script>
 </body>
 </html>

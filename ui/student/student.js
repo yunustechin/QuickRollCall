@@ -27,22 +27,55 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function isHTTPS() {
-         return window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+         return window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '192.168.1.6';
     }
 
-    async function handleScanSuccess(decodedText) {
-        try {
-            await html5QrCode.stop();
-            showIdleState();
-            statusDiv.textContent = DYNAMIC_STATUS.SUCCESS(decodedText);
-            window.location.href = `/qr/attend/${decodedText}`;
+    async function handleScanSuccess(decodedText) {
+        try {
+            await html5QrCode.stop();
+            showIdleState();
+        } catch (err) {
+            console.error("Failed to stop scanner:", err);
+            statusDiv.textContent = "Failed to stop scanner.";
+        }
+        
+        const urlParts = decodedText.split('/');
+        const sessionId = urlParts[urlParts.length - 1];
 
-        } catch (err) {
-            console.error(STATIC_STATUS.ERROR_STOP, err);
-            statusDiv.textContent = STATIC_STATUS.ERROR_STOP;
-        }
-    }
+        if (!sessionId) {
+            statusDiv.textContent = "Invalid QR Code format. Session ID not found.";
+            return;
+        }
 
+        statusDiv.textContent = `Session ${sessionId} found. Requesting access...`;
+
+        try {
+            const response = await fetch('/qr/api/request-attendance-token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ session_id: sessionId }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to get access token.');
+            }
+
+            const data = await response.json();
+
+            if (data.access_token) {
+                statusDiv.textContent = "Access granted. Redirecting...";
+                window.location.href = `/qr/attend/${sessionId}?token=${data.access_token}`;
+            } else {
+                throw new Error('Token not found in response.');
+            }
+        } catch (error) {
+            console.error('Error fetching access token:', error);
+            statusDiv.textContent = `Error: ${error.message}. Please try again.`;
+        }
+    }
     function handleScanFailure(_errorMessage) {
         // Minor bug — logging will be done for performance
         // console.warn(`QR Code scan failure: ${_errorMessage}`);

@@ -1,9 +1,22 @@
 version: '3.8'
 
 services:
+
+  api:
+    build: . 
+    container_name: my-fastapi-app
+    ports:
+      - "5000:5000" 
+
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+
   redis:
-    image: 'redis:8.0.2-alpine'
-    container_name: redis-db
+    image: 'redis:latest' 
+    container_name: my-redis
     restart: always
     ports:
       - "6379:6379"

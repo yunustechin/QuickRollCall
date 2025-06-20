@@ -1,26 +1,26 @@
-from fastapi import Request
+from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi import status
-import logging
-import json
+from .logger import log_info, log_error
 import traceback
 import time
 
-async def global_exception_handler(request: Request, exc: Exception):
-    log_payload = {
-        "event": "unhandled_exception",
-        "path": str(request.url),
-        "error": str(exc),
-        "trace": traceback.format_exc()
-    }
-    logging.error(json.dumps(log_payload))
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """ A global exception handler to catch any unhandled exceptions."""
+    log_error(
+        event="unhandled_exception",
+        err=exc,
+        details={
+            "path": str(request.url),
+            "traceback": traceback.format_exc()
+        }
+    )
 
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "status": "error",
-            "message": "Internal server error",
-            "details": str(exc)
+            "message": "Internal server error"
         }
     )
 
@@ -30,14 +30,15 @@ async def add_process_time_header(request: Request, call_next):
     response = await call_next(request)
     process_time = time.time() - start_time
     
-    log_payload = {
-        "event": "request_completed",
-        "method": request.method,
-        "path": request.url.path,
-        "status_code": response.status_code,
-        "process_time_ms": round(process_time * 1000, 2)
-    }
-    logging.info(json.dumps(log_payload))
+    log_info(
+        event="request_completed",
+        details={
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "process_time_ms": process_time
+        }
+    )
     
-    response.headers["X-Process-Time-Ms"] = str(log_payload["process_time_ms"])
+    response.headers["X-Process-Time-Ms"] = str(["process_time_ms"])
     return response

@@ -1,12 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status, Query, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
-import logging
 from pydantic import BaseModel
 from db import RedisClient
-from .config import rate_limit_settings
+from .config import app_settings, rate_limit_settings
 from .dependencies import get_redis_client
-
+from .exceptions import TokenInvalidError, TokenMismatchError, SessionNotFoundOrClosedError, DuplicateAttendanceError, APIServiceError
+from .logger import log_error, log_info
+import logging
 
 class StudentData(BaseModel):
     name: str
@@ -15,36 +16,83 @@ class StudentData(BaseModel):
     faculty: str
     section: str
 
-
 router = APIRouter()
 templates = Jinja2Templates(directory="ui/student")
 
+async def validate_one_time_token(
+    session_id: str, 
+    token: str = Query(...), 
+    redis: RedisClient = Depends(get_redis_client)
+) -> str:
+    """
+    Validates a one-time use token against the session ID.
+
+    This function consumes a one-time token to ensure it is valid and
+    corresponds to the given session ID. It is used to prevent unauthorized
+    access to the attendance form.
+
+    Args:
+        session_id (str): The identifier of the current session.
+        token (str): The one-time token to be validated.
+        redis (RedisClient): The Redis client dependency for database operations.
+
+    Returns:
+        str: The session ID if the token is valid and matches.
+
+    Raises:
+        TokenInvalidError: If the token does not exist or has already been used.
+        TokenMismatchError: If the token is valid but does not match the session ID.
+    """
+    retrieved_session_id = await redis.consume_access_token(token)
+    if not retrieved_session_id:
+        raise TokenInvalidError()
+    if retrieved_session_id != session_id:
+        raise TokenMismatchError()
+    
+    log_info("token_validated", {"session_id": session_id})
+    return session_id
 
 async def validate_session_id(
     session_id: str,
     redis: RedisClient = Depends(get_redis_client)
 ) -> str:
-    """Ensure session exists and is still open."""
-    if not await redis.is_session_valid(session_id):
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="This session is closed or expired."
-        )
-    return session_id
+    """
+    Ensures that a session exists and is currently open for attendance.
 
+    Args:
+        session_id (str): The ID of the session to validate.
+        redis (RedisClient): The Redis client for checking the session's status.
+
+    Returns:
+        str: The session ID if it is valid and open.
+
+    Raises:
+        SessionNotFoundOrClosedError: If the session does not exist or is no longer active.
+    """
+    if not await redis.is_session_valid(session_id):
+        raise SessionNotFoundOrClosedError(session_id)
+    return session_id
 
 async def enforce_rate_limit(
     request: Request,
     redis: RedisClient = Depends(get_redis_client)
 ):
     """
-    Apply basic rate limit per client IP.
-    Allow max 2 requests per 60 seconds.
+    Applies a basic rate limit based on the client's IP address.
 
-    NOTE: Bypassed for local dev (127.0.0.1).
+    This function restricts the number of requests from a single IP to prevent
+    abuse. The rate limit is bypassed for local development environments.
+
+    Args:
+        request (Request): The incoming request object, used to identify the client's IP.
+        redis (RedisClient): The Redis client for tracking request counts.
+
+    Raises:
+        HTTPException: If the client has exceeded the defined request limit.
     """
     client_ip = request.client.host
-    if client_ip == "127.0.0.1":
+    # Bypass rate limiting for local development
+    if client_ip == app_settings.CLIENT_IP:
         return
 
     try:
@@ -62,48 +110,65 @@ async def enforce_rate_limit(
     except Exception as e:
         logging.error(f"Rate limit check failed for {client_ip}: {e}")
 
-
 @router.get("/", tags=["Attendance"])
 async def student_dashboard(request: Request):
-    """Render QR scanner page for students."""
+    """
+    Renders the main student page, which includes the QR code scanner.
+
+    Args:
+        request (Request): The incoming request object.
+
+    Returns:
+        TemplateResponse: The HTML page for the student dashboard.
+    """
     return templates.TemplateResponse("student.html", {"request": request})
 
-
-@router.get(
-    "/{session_id}",
-    dependencies=[Depends(enforce_rate_limit)],
-    tags=["Attendance"]
-)
+@router.get("/{session_id}", dependencies=[Depends(enforce_rate_limit)])
 async def show_attendance_form(
     request: Request,
-    session_id: str = Depends(validate_session_id)
+    validated_session_id: str = Depends(validate_one_time_token)
 ):
-    """Show form if session is valid."""
+    """
+    Displays the attendance form if the session and token are valid.
+
+    Args:
+        request (Request): The incoming request object.
+        validated_session_id (str): The session ID, validated by `validate_one_time_token`.
+
+    Returns:
+        TemplateResponse: The HTML form for submitting attendance.
+    """
     return templates.TemplateResponse(
         "form.html",
-        {"request": request, "session_id": session_id}
+        {"request": request, "session_id": validated_session_id}
     )
 
-
-@router.post(
-    "/{session_id}",
-    dependencies=[Depends(enforce_rate_limit)],
-    tags=["Attendance"]
-)
+@router.post("/{session_id}", dependencies=[Depends(enforce_rate_limit)])
 async def submit_attendance(
     student: StudentData,
     session_id: str = Depends(validate_session_id),
     redis: RedisClient = Depends(get_redis_client)
 ):
     """
-    Submit attendance data.
-    Rejects duplicates.
+    Handles the submission of the attendance form.
+
+    This endpoint validates the session and checks for duplicate submissions
+    before recording the student's attendance.
+
+    Args:
+        student (StudentData): The attendance data submitted by the student.
+        session_id (str): The session ID, validated to ensure the session is active.
+        redis (RedisClient): The Redis client for database interactions.
+
+    Returns:
+        JSONResponse: A success message if the attendance is recorded.
+
+    Raises:
+        DuplicateAttendanceError: If the student has already submitted attendance for this session.
+        APIServiceError: If the student record fails to be saved in the database.
     """
     if await redis.has_student_submitted(session_id, student.school_no):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Attendance already submitted for this session."
-        )
+        raise DuplicateAttendanceError()
 
     success = await redis.add_student_record(
         session_id,
@@ -111,12 +176,14 @@ async def submit_attendance(
         student.model_dump()
     )
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not save attendance record."
-        )
-
+        log_error("redis_record_add_failed", Exception("Failed to add student record"), {
+            "session_id": session_id,
+            "student_no": student.school_no
+        })
+        raise APIServiceError("Could not save attendance record.")
+    
+    log_info("attendance_submitted", {"session_id": session_id, "student_no": student.school_no})
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={"message": "Attendance recorded successfully!"}
-    ) 
+    )

@@ -136,3 +136,5 @@ The API also serves the static HTML pages for the user interface.
   * **`GET /qr/`**: Serves the main application landing page (`main.html`).
   * **`GET /qr/teacher`**: Serves the teacher dashboard for creating sessions and generating QR codes (`teacher/teacher.html`).
   * **`GET /qr/attend/`**: Serves the student page which contains the QR code scanner (`student.html`).
+
+## Tests

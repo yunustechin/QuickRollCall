@@ -1,16 +1,12 @@
-from fastapi import APIRouter, HTTPException, Request, Query, Depends, status
+from fastapi import APIRouter, Request, Query, Depends
 from fastapi.responses import StreamingResponse, Response
 from fastapi.templating import Jinja2Templates
+from .dependencies import get_session_service
+from .config import app_settings, access_token_settings
+from pydantic import BaseModel
+from .services import SessionService 
+from .logger import log_error 
 from enum import Enum
-import io
-import asyncio
-import logging
-from typing import Optional
-from datetime import datetime
-from .dependencies import get_redis_client
-from generator.qrCode import QRCodeGenerator, UniqueIdGenerator
-from generator.exportFile import ExportFile
-from .config import app_settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="ui")
@@ -19,105 +15,103 @@ class ExportFormat(str, Enum):
     TXT = "txt"
     CSV = "csv"
 
+class TokenRequest(BaseModel):
+    session_id: str
 
-def generate_qr_image_stream(data: str) -> Optional[io.BytesIO]:
-    """Generate a QR code PNG stream from given data."""
-    qr_generator = QRCodeGenerator(data=data)
-    qr_generator.generate_qr_code()
-    
-    if qr_generator.qr_code is None:
-        return None
-    
-    stream = io.BytesIO()
-    qr_generator.qr_code.save(stream, format="PNG")
-    stream.seek(0)
-    return stream
+@router.post("/api/request-attendance-token", tags=["Attendance Token"])
+async def request_attendance_token(
+    token_request: TokenRequest,
+    service: SessionService = Depends(get_session_service) 
+):
+    """Generates and returns a one-time access token for a given session.
 
+    Args:
+        token_request (TokenRequest): The request body containing the session_id.
+        service (SessionService): The dependency-injected session service.
 
-async def build_qr_stream(redis: get_redis_client) -> tuple[str, io.BytesIO]:
-    """Create a new session, generate its QR code as PNG stream."""
-    session_id = UniqueIdGenerator().get_unique_id()
-
-    if not await redis.create_attendance_session(session_id=session_id):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not create session in Redis."
-        )
-
-    url = f"{app_settings.BASE_URL}/attend/{session_id}"
-    stream = await asyncio.to_thread(generate_qr_image_stream, url)
-
-    if stream is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate QR code image."
-        )
-
-    return session_id, stream
-
+    Returns:
+        dict: A dictionary containing the generated one-time access token.
+              Example: {"access_token": "your_generated_token"}
+    """
+    access_token = await service.get_one_time_token(token_request.session_id)
+    return {"access_token": access_token}
 
 @router.get("/", tags=["QR Code"])
 async def qr_base_page(request: Request):
-    """Render landing page."""
-    return templates.TemplateResponse("main.html", {"request": request})
+    """Renders the main landing page of the application.
 
+    Args:
+        request (Request): The incoming FastAPI request object.
+
+    Returns:
+        TemplateResponse: An HTML response rendering the main.html template.
+    """
+    return templates.TemplateResponse("main.html", {"request": request})
 
 @router.get("/teacher", tags=["QR Code"])
 async def teacher_dashboard(request: Request):
-    """Render teacher dashboard for QR code generation."""
+    """Renders the teacher's dashboard for initiating a new session.
+
+    Args:
+        request (Request): The incoming FastAPI request object.
+
+    Returns:
+        TemplateResponse: An HTML response rendering the teacher.html template.
+    """
     return templates.TemplateResponse("teacher/teacher.html", {"request": request})
 
-
 @router.post("/generate-qr-code", tags=["QR Code"])
-async def generate_qr_code(redis: get_redis_client = Depends(get_redis_client)):
-    """Generate QR code and return it with session ID in header."""
+async def generate_qr_code(
+    request: Request, 
+    service: SessionService = Depends(get_session_service) 
+):
+    """Creates a new attendance session and returns a QR code image stream.
+
+    Args:
+        request (Request): The incoming FastAPI request object.
+        service (SessionService): The dependency-injected session service.
+
+    Returns:
+        StreamingResponse: A response streaming the generated QR code as a PNG image.
+                           The custom 'X-Session-ID' header contains the new session ID.
+
+    Raises:
+        Exception: Propagates any exception that occurs during the QR code
+                   session creation and logs the error.
+    """
     try:
-        session_id, stream = await build_qr_stream(redis)
+        base_url = str(request.base_url)
+        session_id, stream = await service.create_qr_session(base_url)
+        
         response = StreamingResponse(stream, media_type="image/png")
         response.headers["X-Session-ID"] = session_id
         response.headers["Access-Control-Expose-Headers"] = "X-Session-ID"
         return response
-    except HTTPException:
-        raise
     except Exception as e:
-        logging.error(f"Unexpected error during QR generation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred while generating the QR code."
-        )
-    
+        log_error("qr_generation_endpoint_error", e, {})
+        raise e
 
 @router.post("/export/{session_id}", tags=["QR Code"])
 async def export_session_data(
     session_id: str,
-    format: ExportFormat = Query(...),
-    redis: get_redis_client = Depends(get_redis_client)
+    format: ExportFormat = Query(..., description="The desired file format for the export."),
+    service: SessionService = Depends(get_session_service) 
 ):
-    """Export session data and close the session."""
-    attendance_data = await redis.export_attendance(session_id)
-    if attendance_data is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not fetch attendance data."
-        )
+    """Exports attendance data for a given session and then closes it.
 
-    if not await redis.close_attendance_session(session_id):
-        logging.warning(f"Session {session_id} could not be closed after export.")
+    Args:
+        session_id (str): The unique identifier for the session to be exported.
+        format (ExportFormat): The target format for the data export (txt or csv).
+        service (SessionService): The dependency-injected session service.
 
-    exporter = ExportFile(students_data=attendance_data)
-
-    export_map = {
-        ExportFormat.TXT: (exporter.generate_txt, "text/plain"),
-        ExportFormat.CSV: (exporter.generate_csv, "text/csv"),
-    }
-
-    if format not in export_map:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid export format specified.")
+    Returns:
+        Response: A response containing the exported data as a file attachment,
+                  with appropriate media type and 'Content-Disposition' headers.
+    """
+    content, media_type, filename = await service.finalize_session_export(
+        session_id, format.value
+    )
     
-    generate_method, media_type = export_map[format]
-    content = generate_method()
-    filename = f"rollcall_{datetime.now():%Y-%m-%d}.{format.value}"
-
     return Response(
         content=content,
         media_type=media_type,

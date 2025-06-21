@@ -89,7 +89,7 @@ async def generate_qr_code(
         return response
     except Exception as e:
         log_error("qr_generation_endpoint_error", e, {})
-        raise e
+        raise
 
 @router.post("/export/{session_id}", tags=["QR Code"])
 async def export_session_data(

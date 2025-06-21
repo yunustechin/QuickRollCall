@@ -65,21 +65,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const data = await response.json();
 
-            if (data.access_token) {
-                statusDiv.textContent = "Access granted. Redirecting...";
-                window.location.href = `/qr/attend/${sessionId}?token=${data.access_token}`;
-            } else {
+            if(!data.access_token){
                 throw new Error('Token not found in response.');
             }
+
+            statusDiv.textContent = "Access granted. Redirecting...";
+            window.location.href = `/qr/attend/${sessionId}?token=${data.access_token}`;
+
         } catch (error) {
             console.error('Error fetching access token:', error);
             statusDiv.textContent = `Error: ${error.message}. Please try again.`;
         }
     }
-    function handleScanFailure(_errorMessage) {
-        // Minor bug — logging will be done for performance
-        // console.warn(`QR Code scan failure: ${_errorMessage}`);
-    }
 
     async function startScanner() {
         scanButton.style.display = 'none';
@@ -95,8 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
             await html5QrCode.start(
                 { facingMode: "environment" },
                 config,
-                handleScanSuccess,
-                handleScanFailure
+                handleScanSuccess
             );
         } catch (err) {
             console.error(STATIC_STATUS.ERROR_START_GENERIC, err);

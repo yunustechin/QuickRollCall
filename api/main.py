@@ -84,5 +84,5 @@ if __name__ == "__main__":
         "api.main:app",
         host=app_settings.CLIENT_IP,
         port=app_settings.PORT,
-        reload=True
+        reload=False
     )
